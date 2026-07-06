@@ -1,0 +1,33 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[oc]
+
+# Packaging / build artifacts
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment
+.env
+
+# Test / lint / type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

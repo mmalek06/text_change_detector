@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "text-change-detector"
+version = "0.1.0"
+description = "Split text into semantic units and detect which units a proposed change impacts, using embeddings, graph clustering and an LLM."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Marek Małek", email = "mmalek06@gmail.com" }]
+keywords = [
+    "nlp",
+    "semantic-units",
+    "text-segmentation",
+    "change-impact",
+    "embeddings",
+    "requirements",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+]
+
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "networkx>=3.2",
+    "spacy>=3.7",
+    "sentence-transformers>=2.7",
+    "torch>=2.1",
+    "pydantic>=2.5",
+    "python-docx>=1.1",
+    "pymupdf>=1.24",
+    "langchain-ollama>=0.1",
+    "ollama>=0.3",
+    "scipy-stubs~=1.18.0",
+]
+
+[project.urls]
+Repository = "https://github.com/mmalek06/text_change_detector"
+Issues = "https://github.com/mmalek06/text_change_detector/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    # spaCy model used only by the test suite (built-in extractor tests). It is a
+    # URL dependency, so it must never leak into the published package - keeping it
+    # here in the dev group ensures it stays test-only.
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/text_change_detector"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/text_change_detector", "README.md", "LICENSE"]
