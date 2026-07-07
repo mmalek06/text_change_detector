@@ -3,6 +3,31 @@
 Split text into semantic units and detect which units a proposed change
 impacts, using embeddings, graph clustering and a local LLM.
 
+## Why this exists
+
+This is not an attempt to add another brick to the general RAG stack. It targets
+one concrete job: **carrying a change through an existing document** when a new
+requirement or idea arrives and has to be reflected in the specification, the
+contract, or whatever text is being analyzed. The question it answers
+is "given this new rule, which parts of the document does it touch, and how
+should each of them now read?"
+
+For that job, splitting the work into a deterministic embedding-and-graph stage
+and a narrow LLM stage is more stable and cheaper than handing the whole document
+and the change to an end-to-end LLM. Retrieval runs once and is reproducible; the
+LLM is then asked only about a short list of candidate units, one change against
+one unit at a time, and never has to hold the entire document in context or
+rewrite it wholesale. That bounds the token cost, keeps every edit local and
+auditable, and leaves far less room for the drift and hallucination you invite
+when a single long generation is responsible for a whole document.
+
+It runs fully locally out of the box (a local SentenceTransformer embedder and a
+local Ollama model), so nothing has to leave the machine. But local is the floor,
+not the ceiling: the LLM and the embedder are both injectable, so you can point
+the verify and merge passes at a more powerful model (any LangChain chat model,
+hosted frontier models included) or swap in a stronger embedder for the
+semantic-unit matching, and keep the same pipeline around it.
+
 ## How it compares
 
 The segmentation step is a modern take on **topic segmentation**, a problem with
@@ -30,6 +55,25 @@ second stage then lifts the linear segmentation into structure: the units are
 embedded, connected into a kNN similarity graph, and clustered with **Louvain**
 community detection, so thematically related units are grouped into communities
 even when they are not adjacent in the document.
+
+### Why units stay short
+
+Both stages lean on one property of the embedding: a semantic unit is encoded as
+a single vector, and the more sentences that vector has to summarise, the more it
+drifts toward a blurry average that blends several topics and discriminates
+poorly. `group_max_len` caps a unit at seven sentences to keep each vector sharp
+and topically focused, so the similarities that drive both boundary detection and
+the change-to-unit ranking stay meaningful. The specific value of seven was
+chosen empirically, from trying a handful of documents rather than a formal
+sweep, which is part of why it stays a tunable parameter.
+
+The usual cost of short units, a single topic scattered across several small
+fragments, does not hurt here, because regrouping them is exactly what the
+Louvain stage is for. Community detection collects every unit about the same
+subject into one topical community, so the pipeline gets sharp per-unit
+embeddings and document-level topic grouping at the same time. Keeping units
+short is therefore the safe default: shortness is cheap to recover from at the
+community stage, whereas an over-long, blurred unit is not.
 
 ### Cuts along topics, not to a size
 
@@ -181,6 +225,18 @@ my_prompts = Prompts(
 result = detect_changes(tiling, changes, llm=my_llm, prompts=my_prompts)
 ```
 
+The shipped prompts are deliberately general. The tiling and graph machinery is
+domain-agnostic, and so are `ENGLISH_PROMPTS` and `POLISH_PROMPTS`, which speak
+about "a change" and "a unit" in neutral terms. That generality is a floor, not
+a ceiling: in a specialised domain the neutral wording can leave quality on the
+table, so it is worth teaching the prompts the domain's own rules. In a legal
+document, for instance, you might tell the model to weigh only the text currently
+in force and to ignore repealed provisions (the `(uchylony)` stubs), to respect
+article and paragraph boundaries, or to treat a cross-reference to another
+article as context rather than as the unit a change belongs in. Because
+`prompts=` is just a `Prompts` of `str.format` templates, this is a copy-and-edit
+away, with no change to the library.
+
 ### Reading the result
 
 `detect_changes` returns a `DetectionResult`: one `ChangeImpact` per change, plus
@@ -221,6 +277,13 @@ is your responsibility.
   document that is a redundant pass over the embedding model. A future version
   could let `tile` hand the unit embeddings (or the graph) to `detect_changes` so
   they are computed once, leaving only the change texts to embed.
+- **TODO (unit length vs embedding size):** `group_max_len` is a fixed 7 for
+  every embedder. But how many sentences a single vector can hold before it blurs
+  (see "Why units stay short") depends on the embedding's capacity, so a
+  higher-dimensional model could safely take longer units while a smaller one may
+  want shorter ones. A future version could derive the cap from the embedder's
+  dimensionality (or ship a per-model default) instead of using the same constant
+  for every model.
 
 ## Status
 

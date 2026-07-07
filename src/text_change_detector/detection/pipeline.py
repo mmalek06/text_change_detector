@@ -31,6 +31,7 @@ def detect_changes(
     llm: ChatModel | None = None,
     llm_model: str = DEFAULT_LLM_MODEL,
     prompts: Prompts = ENGLISH_PROMPTS,
+    repeat_on_parse_failure: bool = True,
     knn_k: int = 5,
     primary_k: int = 5,
     similarity_floor: float = 0.5,
@@ -63,6 +64,10 @@ def detect_changes(
         llm_model: Ollama model id for the default LLM, ignored when `llm` is given.
         prompts: The prompt set. `ENGLISH_PROMPTS` (default) or `POLISH_PROMPTS`,
             or your own `Prompts`. Match it to the document's language.
+        repeat_on_parse_failure: When True (default), an LLM call whose output the
+            structured parser cannot read is retried on the same prompt up to three
+            times before failing. Guards against a model that occasionally returns
+            an empty or malformed structured answer (some reasoning models do).
         knn_k: Neighbours kept per unit when rebuilding the graph. Must match the
             `knn_k` the graph was tiled with.
         primary_k: How many top-similarity units count as direct hits per change.
@@ -106,7 +111,7 @@ def detect_changes(
         if owns_embedder:
             embedder.close()
 
-    reviewer = Reviewer(llm or default_llm(llm_model), prompts)
+    reviewer = Reviewer(llm or default_llm(llm_model), prompts, repeat_on_parse_failure=repeat_on_parse_failure)
     impacts = [_review(change, analysis, reviewer) for change, analysis in zip(changes, analyses)]
 
     return DetectionResult(changes=impacts)

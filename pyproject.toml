@@ -55,6 +55,11 @@ dev = [
     # URL dependency, so it must never leak into the published package - keeping it
     # here in the dev group ensures it stays test-only.
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "jupyterlab>=4.6.1",
+    "ipykernel>=7.3.0",
+    "nbconvert>=7.17.1",
+    "matplotlib>=3.11.0",
+    "pl-core-news-sm",
 ]
 
 [tool.pytest.ini_options]
@@ -66,3 +71,6 @@ packages = ["src/text_change_detector"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/text_change_detector", "README.md", "LICENSE"]
+
+[tool.uv.sources]
+pl-core-news-sm = { url = "https://github.com/explosion/spacy-models/releases/download/pl_core_news_sm-3.8.0/pl_core_news_sm-3.8.0-py3-none-any.whl" }
