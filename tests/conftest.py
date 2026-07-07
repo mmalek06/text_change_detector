@@ -1,7 +1,7 @@
 import pytest
 import spacy
 
-from text_change_detector.embedder import SentenceTransformerEmbedder
+from text_change_detector.shared.embedder import SentenceTransformerEmbedder
 from tests import helpers
 
 

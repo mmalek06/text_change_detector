@@ -6,8 +6,9 @@ import numpy as np
 import torch
 from scipy.stats import median_abs_deviation
 
-from text_change_detector.embedder import Embedder, SentenceTransformerEmbedder
-from text_change_detector.models import Community, Segment, SemanticUnit, TilingResult
+from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
+from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
+from text_change_detector.shared.graph import knn_sparsify
 from text_change_detector.tiling.extraction import Extractor, Source, builtin_extract
 
 
@@ -136,7 +137,7 @@ def _tile(
         )
         unique = _deduplicate_groups(groups)
         matrix = _create_similarity_matrix(unique, embedder)
-        adjacency = _knn_sparsify(matrix, knn_k)
+        adjacency = knn_sparsify(matrix, knn_k)
         graph = nx.from_numpy_array(adjacency)
         communities = nx.community.louvain_communities(graph, seed=louvain_seed)
 

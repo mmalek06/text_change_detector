@@ -4,7 +4,7 @@ from pathlib import Path
 import fitz
 from docx.document import Document as DocxDocument
 
-from text_change_detector.models import Segment
+from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.docx import DocxSource, extract_docx
 from text_change_detector.tiling.extraction.pdf import PdfSource, extract_pdf
 from text_change_detector.tiling.extraction.shared import load_nlp

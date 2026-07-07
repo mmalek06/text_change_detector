@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from text_change_detector.embedder import Embedder, SentenceTransformerEmbedder
+from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from tests.helpers import MINILM
 
 

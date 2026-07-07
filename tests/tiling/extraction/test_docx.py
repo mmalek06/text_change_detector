@@ -1,7 +1,7 @@
 from docx import Document
 from docx.shared import Pt
 
-from text_change_detector.models import Segment
+from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.docx import (
     column_headers,
     extract_docx,

@@ -1,4 +1,4 @@
-from text_change_detector.models import Community, SemanticUnit, TilingResult
+from text_change_detector.shared.models import Community, SemanticUnit, TilingResult
 
 
 class TestTilingResultTree:

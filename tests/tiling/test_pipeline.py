@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from text_change_detector.models import Segment, TilingResult
+from text_change_detector.shared.models import Segment, TilingResult
 from text_change_detector.tiling import pipeline
 from text_change_detector.tiling.pipeline import (
     _build_groups,
@@ -11,7 +11,6 @@ from text_change_detector.tiling.pipeline import (
     _deduplicate_groups,
     _extract,
     _is_boundary,
-    _knn_sparsify,
     _step_dissimilarities,
     _to_result,
     _unit_text,
@@ -142,45 +141,6 @@ class TestCreateSimilarityMatrix:
         r = 1 / np.sqrt(2)
 
         assert np.allclose(matrix, [[1, 0, r], [0, 1, r], [r, r, 1]])
-
-
-class TestKnnSparsify:
-    def test_keeps_top_k_and_symmetrises(self):
-        matrix = np.array([
-            [1.0, 0.9, 0.2, 0.1],
-            [0.9, 1.0, 0.3, 0.2],
-            [0.2, 0.3, 1.0, 0.8],
-            [0.1, 0.2, 0.8, 1.0],
-        ])
-        adjacency = _knn_sparsify(matrix, k=1)
-
-        assert np.allclose(adjacency, [
-            [0.0, 0.9, 0.0, 0.0],
-            [0.9, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.8],
-            [0.0, 0.0, 0.8, 0.0],
-        ])
-
-    def test_edge_survives_when_only_one_side_selects_it(self):
-        matrix = np.array([
-            [1.0, 0.5, 0.4],
-            [0.5, 1.0, 0.9],
-            [0.4, 0.9, 1.0],
-        ])
-        adjacency = _knn_sparsify(matrix, k=1)
-
-        assert np.allclose(adjacency, [
-            [0.0, 0.5, 0.0],
-            [0.5, 0.0, 0.9],
-            [0.0, 0.9, 0.0],
-        ])
-
-    def test_diagonal_is_zeroed_and_result_symmetric(self):
-        matrix = np.array([[1.0, 0.7], [0.7, 1.0]])
-        adjacency = _knn_sparsify(matrix, k=1)
-
-        assert np.allclose(np.diag(adjacency), [0.0, 0.0])
-        assert np.allclose(adjacency, adjacency.T)
 
 
 class TestToResult:

@@ -260,3 +260,30 @@ class StubEmbedder:
         vector[zlib.crc32(sentence.encode("utf-8")) % self.dim] = 1.0
 
         return vector
+
+
+class _BoundStub:
+    def __init__(self, parent, schema):
+        self.parent = parent
+        self.schema = schema
+
+    def invoke(self, prompt):
+        self.parent.calls.append((self.schema, prompt))
+
+        return self.parent.handlers[self.schema](prompt)
+
+
+class StructuredLLMStub:
+    """A stand-in for a LangChain chat model used with structured output.
+
+    `handlers` maps each response schema to a callable `(prompt) -> BaseModel`.
+    Every `with_structured_output(schema).invoke(prompt)` call is recorded on
+    `.calls` as `(schema, prompt)` so tests can assert what was sent.
+    """
+
+    def __init__(self, handlers):
+        self.handlers = dict(handlers)
+        self.calls = []
+
+    def with_structured_output(self, schema, **kwargs):
+        return _BoundStub(self, schema)

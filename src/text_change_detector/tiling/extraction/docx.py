@@ -7,7 +7,7 @@ from docx.document import Document as DocxDocument
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-from text_change_detector.models import Segment
+from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.shared import (
     NUMBERED_HEADING,
     is_content,

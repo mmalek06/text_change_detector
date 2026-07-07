@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 import fitz
 
-from text_change_detector.models import Segment
+from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.shared import NUMBERED_HEADING, is_content, split_sentences
 
 PdfSource = str | Path | fitz.Document
