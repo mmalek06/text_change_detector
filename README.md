@@ -158,6 +158,13 @@ is your responsibility.
   not become part of a semantic unit or community. This is planned to change in a
   future version, where footnotes will be pulled in and attached to the segment
   that references them.
+- **TODO (units embedded twice):** Running the full pipeline embeds the semantic
+  units twice - `tile` embeds each unit to build the relation graph, then
+  `detect_changes` embeds the same units again to rebuild it, because a
+  `TilingResult` carries only text, not the vectors or the graph. On a large
+  document that is a redundant pass over the embedding model. A future version
+  could let `tile` hand the unit embeddings (or the graph) to `detect_changes` so
+  they are computed once, leaving only the change texts to embed.
 
 ## Status
 

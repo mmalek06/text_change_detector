@@ -266,23 +266,6 @@ def _create_similarity_matrix(groups: list[list[Segment]], embedder: Embedder) -
     return matrix
 
 
-def _knn_sparsify(matrix: np.ndarray, k: int = 5) -> np.ndarray:
-    sim = matrix.copy()
-
-    np.fill_diagonal(sim, -np.inf)
-
-    neighbors = np.argsort(-sim, axis=1)[:, :k]
-    mask = np.zeros_like(matrix, dtype=bool)
-    rows = np.arange(matrix.shape[0])[:, None]
-    mask[rows, neighbors] = True
-    mask |= mask.T
-    adjacency = np.where(mask, matrix, 0.0)
-
-    np.fill_diagonal(adjacency, 0.0)
-
-    return adjacency
-
-
 def _unit_text(group: list[Segment]) -> str:
     return " ".join(part for segment in group for part in (segment.text, *segment.payload))
 
