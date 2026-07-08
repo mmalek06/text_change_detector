@@ -43,14 +43,17 @@ This project keeps the TextTiling skeleton and swaps its signal. The
 dissimilarity at each gap is the cosine distance between the **sentence
 embeddings** of the window to its left and right (`_step_dissimilarities`), so
 cohesion is judged by meaning rather than shared tokens. A gap becomes a boundary
-either when similarity drops below a hard `floor`, or when it stands out as a
-**robust z-score** (median + MAD) against its *local* neighbourhood
-(`_is_boundary`). This is an adaptive, per-region test rather than one global
-threshold, so a locally sharp topic shift is caught even inside a dense passage,
-while a single noisy sentence in a calm one is not mistaken for a boundary.
-Around each seed the window grows in both directions up to `group_max_len`, and
-very short
-solo fragments are held back (`min_solo_words`) instead of standing alone. A
+when it is a **peak** of that dissimilarity whose **prominence** stands out from
+the surrounding curve (`_prominence_boundaries`), which is the modern form of
+Hearst's own depth score. Prominence is a height difference, how far the curve
+must descend on either side of a peak before it climbs again, so it does not
+depend on the absolute cosine scale of any particular embedder, and it reads only
+the nearest valleys rather than a wide statistical window, so it holds up even
+where boundaries are dense. The four-sentence window is what makes a boundary
+require a sustained change rather than a single sentence: one off-topic sentence
+is diluted inside the window and barely moves the signal. Around each seed the
+window grows in both directions up to `group_max_len`, and very short solo
+fragments are held back (`min_solo_words`) instead of standing alone. A
 second stage then lifts the linear segmentation into structure: the units are
 embedded, connected into a kNN similarity graph, and clustered with **Louvain**
 community detection, so thematically related units are grouped into communities
@@ -94,11 +97,11 @@ change-impact analysis rests on), that is what this does.
 ### Generic by design
 
 The defaults are meant to be left alone. The algorithm is generic: the boundary
-test is relative (a robust z-score against the local baseline) and the signal is
-a normalized embedding cosine, so nothing is calibrated to a particular document
-length, domain or writing style, and the same settings are meant to carry from a
-short PDF spec to a long Word requirements document. The knobs on `tile()`
-(`window_size`, `baseline_radius`, `threshold`, `floor`, `group_max_len`,
+test is the prominence of a peak in a normalized embedding cosine, a height
+difference rather than an absolute level, so nothing is calibrated to a particular
+document length, domain, writing style, or embedding model, and the same settings
+are meant to carry from a short PDF spec to a long Word requirements document. The
+knobs on `tile()` (`window_size`, `prominence_c`, `group_max_len`,
 `min_solo_words`, `knn_k`) are exposed as an escape hatch for unusual inputs, not
 as dials you are expected to sweep. Reach for them only when a specific document
 segments in a way you want to nudge.
@@ -262,8 +265,15 @@ and a local LLM can share one GPU. With a custom `embedder` the library never
 touches its lifecycle, so releasing GPU memory (and not starving the LLM of it)
 is your responsibility.
 
-## Known limitations
+## Taskboard
 
+- **TODO (injectable PDF extraction):** The built-in PDF extractor is built on
+  PyMuPDF (AGPL-3.0) and is currently a hard runtime dependency, imported at
+  package load. It should become an injectable, opt-in piece: PyMuPDF behind an
+  optional extra with a lazy import, so a caller who supplies a `list[Segment]`
+  or a custom `extractor=`, or who only tiles `.docx`, does not pull PyMuPDF at
+  all. This isolates the AGPL dependency to the users who actually choose the
+  built-in PDF path and keeps the core extraction-backend-agnostic.
 - **TODO (docx footnotes):** In its current form the `.docx` extractor does not
   take Word footnotes into account - footnote text lives in a separate document
   part (`word/footnotes.xml`) and is not read, so any "side notes" it carries do

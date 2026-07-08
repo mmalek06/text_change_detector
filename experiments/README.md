@@ -5,10 +5,6 @@ not part of the shipped library: everything they need (JupyterLab, matplotlib,
 the Polish spaCy model) lives in this project's `dev` dependency group, so
 `uv sync` in this repo pulls it and clients of the published package never do.
 
-These are experiments, not tests. They make no assertions; they run the pipeline
-and show what comes out, so you can judge whether the units and the impact are
-sensible.
-
 ## Notebooks
 
 - `01_tiling_long_single_topic.ipynb`: how a long single-topic passage (40
@@ -20,21 +16,33 @@ sensible.
   Shows page furniture being filtered, tiling on messy legal text, and an
   end-to-end change-impact pass.
 
-## Running them
+The next five are the investigation behind ADR 001
+(`docs/adr/001.prominence_vs_MAD_plus_z_score.md`), which replaced the absolute
+floor plus robust z-score boundary test with a prominence detector:
 
-Both need the default embedder (`Qwen3-Embedding-4B`), downloaded on first use. A
-CUDA GPU is used when one has enough free memory, otherwise they fall back to CPU.
+- `03_floor_vs_zscore.ipynb`: decomposing which mechanism actually cuts. Shows the
+  hard `floor` did essentially all the cutting and the robust z-score was
+  redundant.
+- `04_zscore_failure_diagnosis.ipynb`: why the z-score failed, namely MAD
+  breakdown under dense boundaries and a threshold calibrated for rare anomalies.
+- `05_trusted_boundaries.ipynb`: scoring floor, z-score and prominence against
+  trusted boundaries (a hand-labelled synthetic passage and the statute's article
+  starts).
+- `06_prominence_cross_embedder.ipynb`: the deciding test, that the floor's `0.6`
+  does not transfer across embedders while prominence does.
+- `07_prominence_in_build_groups.ipynb`: implementing the prominence detector
+  inside a copy of `_build_groups` and validating it end to end against the old
+  floor plus z-score.
 
-Notebook 2 additionally needs a local [Ollama](https://ollama.com) server with an
-instruct model pulled (an instruct model is steadier at structured output than
-the reasoning-style default):
+## Reproducibility
 
-```bash
-ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
-```
+Notebooks 04, 05 and 06 are self-contained: they reimplement the old and new
+boundary tests locally and only use `_step_dissimilarities`, which did not change,
+so re-running them reproduces the saved results exactly.
 
-Then, from the repository root:
-
-```bash
-uv run jupyter lab experiments/
-```
+Notebooks 03 and 07 are NOT frozen and will fail if you re-run them against the
+current library. They call internals that ADR 001 removed (`_is_boundary`, and the
+old `floor` and `threshold` arguments to `tile()`), which no longer exist now that
+prominence is the shipped boundary test. Their saved outputs are kept as the
+record of what the investigation found, so treat them as read-only artefacts, or
+inline the old floor-plus-z-score logic if you need them to execute again.

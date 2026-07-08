@@ -10,7 +10,7 @@ from text_change_detector.tiling.pipeline import (
     _create_similarity_matrix,
     _deduplicate_groups,
     _extract,
-    _is_boundary,
+    _prominence_boundaries,
     _step_dissimilarities,
     _to_result,
     _unit_text,
@@ -60,60 +60,67 @@ class TestStepDissimilarities:
         assert d[1] > d[0]
 
 
-class TestIsBoundary:
-    def test_spike_is_a_boundary(self):
-        d = np.array([0.1, 0.2] * 10 + [0.9])
+class TestProminenceBoundaries:
+    def test_selects_prominent_peaks(self):
+        d = np.array([0.1, 0.8, 0.1, 0.7, 0.1])
 
-        assert _is_boundary(d, 20, radius=20, threshold=3.0)
+        assert _prominence_boundaries(d, 1.0) == {1, 3}
 
-    def test_ordinary_point_is_not_a_boundary(self):
-        d = np.array([0.1, 0.2] * 10 + [0.9])
+    def test_small_bump_below_cutoff_is_dropped(self):
+        d = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.2, 0.1])
 
-        assert not _is_boundary(d, 0, radius=20, threshold=3.0)
+        assert _prominence_boundaries(d, 1.0) == {1, 3, 5}
 
-    def test_zero_spread_is_never_a_boundary(self):
-        d = np.full(11, 0.3)
+    def test_endpoint_peak_is_never_a_boundary(self):
+        d = np.array([0.1, 0.2, 0.3, 0.4, 0.9])
 
-        assert not _is_boundary(d, 5, radius=5, threshold=3.0)
+        assert _prominence_boundaries(d, 1.0) == set()
+
+    def test_empty_and_flat_signals_have_no_boundaries(self):
+        assert _prominence_boundaries(np.array([]), 1.0) == set()
+        assert _prominence_boundaries(np.full(6, 0.3), 1.0) == set()
 
 
 class TestBuildGroups:
-    def _patch(self, monkeypatch, d):
-        monkeypatch.setattr(pipeline, "_step_dissimilarities", lambda sentences, embedder, window_size: np.asarray(d))
+    def _patch(self, monkeypatch, n_gaps, boundaries):
+        monkeypatch.setattr(
+            pipeline, "_step_dissimilarities", lambda sentences, embedder, window_size: np.zeros(n_gaps)
+        )
+        monkeypatch.setattr(pipeline, "_prominence_boundaries", lambda d, c: set(boundaries))
 
-    def test_cuts_at_high_dissimilarity_gaps(self, monkeypatch):
+    def test_cuts_at_boundary_gaps(self, monkeypatch):
         segments = [seg(f"s{i}") for i in range(6)]
 
-        self._patch(monkeypatch, [0.1, 0.9, 0.1, 0.1, 0.9])
+        self._patch(monkeypatch, n_gaps=5, boundaries={1, 4})
 
-        groups = _build_groups(segments, object(), group_max_len=7, threshold=100.0, floor=0.6, min_solo_words=0)
+        groups = _build_groups(segments, object(), group_max_len=7, min_solo_words=0)
 
         assert [[s.text for s in g] for g in groups] == [["s0", "s1"], ["s2", "s3", "s4"], ["s5"]]
 
     def test_short_solo_segment_is_forced_to_grow(self, monkeypatch):
         segments = [seg("tiny short seg"), seg("s1"), seg("s2")]
 
-        self._patch(monkeypatch, [0.9, 0.9])
+        self._patch(monkeypatch, n_gaps=2, boundaries={0, 1})
 
-        groups = _build_groups(segments, object(), group_max_len=7, threshold=100.0, floor=0.6, min_solo_words=10)
+        groups = _build_groups(segments, object(), group_max_len=7, min_solo_words=10)
 
         assert [s.text for s in groups[0]] == ["tiny short seg", "s1"]
 
     def test_short_solo_stays_alone_without_forced_growth(self, monkeypatch):
         segments = [seg("tiny short seg"), seg("s1"), seg("s2")]
 
-        self._patch(monkeypatch, [0.9, 0.9])
+        self._patch(monkeypatch, n_gaps=2, boundaries={0, 1})
 
-        groups = _build_groups(segments, object(), group_max_len=7, threshold=100.0, floor=0.6, min_solo_words=0)
+        groups = _build_groups(segments, object(), group_max_len=7, min_solo_words=0)
 
         assert [s.text for s in groups[0]] == ["tiny short seg"]
 
     def test_group_max_len_is_respected(self, monkeypatch):
         segments = [seg(f"s{i}") for i in range(9)]
 
-        self._patch(monkeypatch, [0.1] * 8)
+        self._patch(monkeypatch, n_gaps=8, boundaries=set())
 
-        groups = _build_groups(segments, object(), group_max_len=3, threshold=100.0, floor=0.6, min_solo_words=0)
+        groups = _build_groups(segments, object(), group_max_len=3, min_solo_words=0)
 
         assert all(len(g) <= 3 for g in groups)
         assert any(len(g) == 3 for g in groups)

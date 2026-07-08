@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "text-change-detector"
-version = "0.1.0"
+version = "0.2.0"
 description = "Split text into semantic units and detect which units a proposed change impacts, using embeddings, graph clustering and an LLM."
 readme = "README.md"
 requires-python = ">=3.13"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Marek Małek", email = "mmalek06@gmail.com" }]
 keywords = [

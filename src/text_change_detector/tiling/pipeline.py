@@ -4,7 +4,7 @@ from pathlib import Path
 import networkx as nx
 import numpy as np
 import torch
-from scipy.stats import median_abs_deviation
+from scipy.signal import find_peaks
 
 from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
@@ -24,9 +24,7 @@ def tile(
     batch_size: int = 8,
     group_max_len: int = 7,
     window_size: int = 4,
-    baseline_radius: int = 15,
-    threshold: float = 3.0,
-    floor: float = 0.6,
+    prominence_c: float = 1.0,
     min_solo_words: int = 10,
     knn_k: int = 5,
     louvain_seed: int = 0,
@@ -68,10 +66,10 @@ def tile(
             on a 16 GB GPU even for very large documents.
         group_max_len: Maximum number of segments grouped into one unit.
         window_size: Sentences on each side used to score step dissimilarity.
-        baseline_radius: Half-width of the local window used to judge a gap.
-        threshold: Robust z-score above the local median for a gap to count as
-            a boundary.
-        floor: A gap whose similarity falls below this is always a cut.
+        prominence_c: Cutoff for the prominence boundary test, applied as
+            mean - prominence_c * std over the peak prominences of the
+            dissimilarity signal. Lower keeps only the sharpest boundaries;
+            by about 1.0 every prominence peak counts as a boundary.
         min_solo_words: A single-segment unit shorter than this keeps growing instead
             of standing alone.
         knn_k: Neighbours kept per unit when building the similarity graph.
@@ -88,7 +86,7 @@ def tile(
 
     return _tile(
         segments, embedder, model_name, device, dtype, batch_size,
-        group_max_len, window_size, baseline_radius, threshold, floor, min_solo_words, knn_k, louvain_seed,
+        group_max_len, window_size, prominence_c, min_solo_words, knn_k, louvain_seed,
     )
 
 
@@ -114,9 +112,7 @@ def _tile(
     batch_size: int | None,
     group_max_len: int,
     window_size: int,
-    baseline_radius: int,
-    threshold: float,
-    floor: float,
+    prominence_c: float,
     min_solo_words: int,
     knn_k: int,
     louvain_seed: int,
@@ -133,7 +129,7 @@ def _tile(
 
     try:
         groups = _build_groups(
-            segments, embedder, group_max_len, window_size, baseline_radius, threshold, floor, min_solo_words
+            segments, embedder, group_max_len, window_size, prominence_c, min_solo_words
         )
         unique = _deduplicate_groups(groups)
         matrix = _create_similarity_matrix(unique, embedder)
@@ -152,18 +148,14 @@ def _build_groups(
     embedder: Embedder,
     group_max_len: int = 7,
     window_size: int = 4,
-    baseline_radius: int = 15,
-    threshold: float = 3.0,
-    floor: float = 0.6,
+    prominence_c: float = 1.0,
     min_solo_words: int = 10,
 ) -> list[list[Segment]]:
     d = _step_dissimilarities([segment.text for segment in segments], embedder, window_size)
+    boundaries = _prominence_boundaries(d, prominence_c)
 
     def cut_at(gap: int) -> bool:
-        if gap < 0 or gap >= len(d):
-            return False
-
-        return d[gap] >= 1.0 - floor or _is_boundary(d, gap, baseline_radius, threshold)
+        return 0 <= gap < len(d) and gap in boundaries
 
     def force_grow(current_window: deque[Segment]) -> bool:
         return len(current_window) == 1 and len(current_window[0].text.split()) < min_solo_words
@@ -227,17 +219,16 @@ def _step_dissimilarities(sentences: list[str], embedder: Embedder, window_size:
     return 1.0 - sims
 
 
-def _is_boundary(d: np.ndarray, k: int, radius: int = 15, threshold: float = 3.0) -> bool:
-    lo = max(0, k - radius)
-    hi = min(len(d), k + radius + 1)
-    local = d[lo:hi]
-    median = np.median(local)
-    sigma = median_abs_deviation(local, scale="normal")
+def _prominence_boundaries(d: np.ndarray, c: float = 1.0) -> set[int]:
+    peaks, properties = find_peaks(d, prominence=0)
 
-    if sigma == 0:
-        return False
+    if len(peaks) == 0:
+        return set()
 
-    return (d[k] - median) / sigma > threshold
+    prominences = properties["prominences"]
+    cutoff = prominences.mean() - c * prominences.std()
+
+    return {int(peak) for peak, prom in zip(peaks, prominences) if prom >= cutoff}
 
 
 def _deduplicate_groups(groups: list[list[Segment]]) -> list[list[Segment]]:
