@@ -16,7 +16,7 @@ from text_change_detector.shared.models import Community, Segment, SemanticUnit,
 from text_change_detector.tiling import tile
 from text_change_detector.tiling.extraction import Extractor
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "tile",
