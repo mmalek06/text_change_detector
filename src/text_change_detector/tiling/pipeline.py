@@ -9,7 +9,7 @@ from scipy.signal import find_peaks
 from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
 from text_change_detector.shared.graph import knn_sparsify
-from text_change_detector.tiling.extraction import Extractor, Source, builtin_extract
+from text_change_detector.tiling.extraction import Extractor, PdfReader, Source, builtin_extract
 
 
 def tile(
@@ -17,6 +17,7 @@ def tile(
     *,
     extractor: Extractor | None = None,
     spacy_model: str | None = None,
+    pdf_reader: PdfReader | None = None,
     embedder: Embedder | None = None,
     model_name: str | None = None,
     device: str | None = None,
@@ -40,19 +41,23 @@ def tile(
         - a custom `extractor` is called as `extractor(path)`;
         - otherwise a built-in extractor is picked from the source: a
           python-docx Document or a *.docx path use the .docx extractor; a
-          PyMuPDF (fitz) Document or a *.pdf path use the .pdf extractor.
+          *.pdf path uses the .pdf extractor, which requires `pdf_reader`.
           Built-in extraction requires `spacy_model`.
 
     Args:
         source: A path to a .docx/.pdf file, an already-loaded python-docx
-            Document, an already-opened PyMuPDF (fitz) Document, or a
-            list[Segment] you produced yourself.
+            Document, or a list[Segment] you produced yourself.
         extractor: Custom extractor turning a path into a list of `Segment`s; any
             `Callable[[Path], list[Segment]]`. Ignored when `source` is a
             list[Segment].
         spacy_model: spaCy model for the built-in extractor (e.g.
             "en_core_web_sm"), installed with `python -m spacy download <model>`.
             Required only when a built-in extractor runs; ignored otherwise.
+        pdf_reader: Reading strategy for PDF sources; any `PdfReader` turning a
+            PDF path into a list of `Block`s. The core ships no PDF engine, so a
+            reader must be injected from a companion package (the pypdfium2
+            rewrite or the PyMuPDF adapter). Required only when a *.pdf path is
+            extracted by the built-in extractor; ignored otherwise.
         embedder: Custom embedding model; any object exposing
             `encode(list[str], normalize_embeddings=True) -> np.ndarray`. When
             None, a default SentenceTransformer is built, owned and freed by
@@ -82,7 +87,7 @@ def tile(
         With the default embedder the library owns it and frees its GPU memory
         before returning. With a custom `embedder`, its lifecycle is yours.
     """
-    segments = _extract(source, extractor, spacy_model)
+    segments = _extract(source, extractor, spacy_model, pdf_reader)
 
     return _tile(
         segments, embedder, model_name, device, dtype, batch_size,
@@ -90,7 +95,12 @@ def tile(
     )
 
 
-def _extract(source: Source, extractor: Extractor | None, spacy_model: str | None) -> list[Segment]:
+def _extract(
+    source: Source,
+    extractor: Extractor | None,
+    spacy_model: str | None,
+    pdf_reader: PdfReader | None = None,
+) -> list[Segment]:
     if isinstance(source, list):
         return source
 
@@ -100,7 +110,7 @@ def _extract(source: Source, extractor: Extractor | None, spacy_model: str | Non
     if extractor is not None:
         return extractor(source)
 
-    return builtin_extract(source, spacy_model)
+    return builtin_extract(source, spacy_model, pdf_reader)
 
 
 def _tile(

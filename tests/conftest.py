@@ -53,8 +53,3 @@ def footnote_docx(tmp_path):
 @pytest.fixture
 def distant_docx(tmp_path):
     return helpers.build_distant_topics_docx(tmp_path / "distant.docx")
-
-
-@pytest.fixture
-def report_pdf(tmp_path):
-    return helpers.build_report_pdf(tmp_path / "report.pdf")

@@ -196,6 +196,22 @@ class TestExtractDispatch:
         assert captured["path"] == Path("file.docx")
         assert [s.text for s in result] == ["y"]
 
+    def test_pdf_without_reader_raises(self):
+        with pytest.raises(ValueError, match="reading strategy"):
+            _extract("file.pdf", None, "en_core_web_sm")
+
+    def test_pdf_uses_injected_reader(self):
+        captured = {}
+
+        def reader(source):
+            captured["source"] = source
+
+            return []
+
+        _extract("file.pdf", None, "en_core_web_sm", reader)
+
+        assert captured["source"] == Path("file.pdf")
+
 
 class TestTileEndToEnd:
     def test_list_source_partitions_all_units(self, real_embedder):

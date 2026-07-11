@@ -14,9 +14,9 @@ from text_change_detector.detection import (
 from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
 from text_change_detector.tiling import tile
-from text_change_detector.tiling.extraction import Extractor
+from text_change_detector.tiling.extraction import Block, Extractor, PdfReader, blocks_to_segments
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "tile",
@@ -30,6 +30,9 @@ __all__ = [
     "ENGLISH_PROMPTS",
     "POLISH_PROMPTS",
     "Extractor",
+    "PdfReader",
+    "Block",
+    "blocks_to_segments",
     "Embedder",
     "SentenceTransformerEmbedder",
     "TilingResult",

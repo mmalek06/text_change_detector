@@ -1,44 +1,56 @@
 from collections.abc import Callable
 from pathlib import Path
 
-import fitz
 from docx.document import Document as DocxDocument
 
 from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.docx import DocxSource, extract_docx
-from text_change_detector.tiling.extraction.pdf import PdfSource, extract_pdf
+from text_change_detector.tiling.extraction.pdf import (
+    Block,
+    PdfReader,
+    blocks_to_segments,
+    extract_pdf,
+    join_wrapped,
+)
 from text_change_detector.tiling.extraction.shared import load_nlp
 
 Extractor = Callable[[Path], list[Segment]]
-Source = str | Path | DocxDocument | fitz.Document | list[Segment]
+Source = str | Path | DocxDocument | list[Segment]
 
 
-def builtin_extract(source: DocxSource | PdfSource, spacy_model: str | None) -> list[Segment]:
-    extract = _resolve(source)
+def builtin_extract(source: Source, spacy_model: str | None, pdf_reader: PdfReader | None = None) -> list[Segment]:
+    kind = _kind(source)
+
+    if kind == "pdf" and pdf_reader is None:
+        raise ValueError(
+            "PDF extraction needs a reading strategy. Pass pdf_reader=... a PdfReader, "
+            "e.g. read_blocks from text_change_detector_pymupdf_rewrite (permissive) or "
+            "text_change_detector_pymupdf_adapter (PyMuPDF), or pass a custom extractor."
+        )
 
     if spacy_model is None:
         raise ValueError("Provide spacy_model for the built-in extractor, or pass a custom extractor.")
 
     nlp = load_nlp(spacy_model)
 
-    return extract(source, nlp)
+    if kind == "docx":
+        return extract_docx(source, nlp)
+
+    return extract_pdf(source, nlp, pdf_reader)
 
 
-def _resolve(source: DocxSource | PdfSource) -> Callable[..., list[Segment]]:
+def _kind(source: Source) -> str:
     if isinstance(source, DocxDocument):
-        return extract_docx
-
-    if isinstance(source, fitz.Document):
-        return extract_pdf
+        return "docx"
 
     if isinstance(source, Path):
         suffix = source.suffix.lower()
 
         if suffix == ".docx":
-            return extract_docx
+            return "docx"
 
         if suffix == ".pdf":
-            return extract_pdf
+            return "pdf"
 
     raise ValueError(f"Cannot infer a built-in extractor for {source!r}; pass a custom extractor or list[Segment].")
 
@@ -47,9 +59,12 @@ __all__ = [
     "Extractor",
     "Source",
     "DocxSource",
-    "PdfSource",
+    "Block",
+    "PdfReader",
     "extract_docx",
     "extract_pdf",
+    "blocks_to_segments",
+    "join_wrapped",
     "builtin_extract",
     "load_nlp",
 ]

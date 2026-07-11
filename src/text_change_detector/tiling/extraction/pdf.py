@@ -1,13 +1,9 @@
 import re
 from pathlib import Path
-from typing import NamedTuple
-
-import fitz
+from typing import NamedTuple, Protocol
 
 from text_change_detector.shared.models import Segment
 from text_change_detector.tiling.extraction.shared import NUMBERED_HEADING, is_content, split_sentences
-
-PdfSource = str | Path | fitz.Document
 
 
 class Block(NamedTuple):
@@ -16,6 +12,20 @@ class Block(NamedTuple):
     bold: bool
     single_line: bool
     page: int
+
+
+class PdfReader(Protocol):
+    """Turns a PDF into a list of typographic blocks.
+
+    A reading strategy is injected into the library rather than bundled, so
+    the core carries no PDF engine (and no engine's licence). Implementations
+    live in companion packages, for example the PyMuPDF adapter or the
+    pypdfium2 rewrite. A reader takes a path to a PDF and returns the page
+    blocks in reading order; the shared `blocks_to_segments` turns those into
+    `Segment`s the same way regardless of which engine produced them.
+    """
+
+    def __call__(self, source: str | Path) -> list[Block]: ...
 
 
 def join_wrapped(parts: list[str]) -> str:
@@ -30,32 +40,6 @@ def join_wrapped(parts: list[str]) -> str:
             out = f"{out} {p}"
 
     return out
-
-
-def read_blocks(doc) -> list[Block]:
-    blocks = []
-
-    for page_no, page in enumerate(doc):
-        for b in page.get_text("dict")["blocks"]:
-            if "lines" not in b:
-                continue
-
-            spans = [s for line in b["lines"] for s in line["spans"] if s["text"].strip()]
-            text = join_wrapped(["".join(s["text"] for s in line["spans"]).strip()
-                                 for line in b["lines"] if "".join(s["text"] for s in line["spans"]).strip()])
-
-            if not text:
-                continue
-
-            blocks.append(Block(
-                text=text,
-                size=max((s["size"] for s in spans), default=0.0),
-                bold=any(s["flags"] & 16 for s in spans),
-                single_line=len(b["lines"]) == 1,
-                page=page_no,
-            ))
-
-    return blocks
 
 
 def body_font_size(blocks: list[Block]) -> float | None:
@@ -102,11 +86,15 @@ def heading_level(block: Block, body_size: float | None, nlp) -> int | None:
     return 2 if block.bold else None
 
 
-def extract_pdf(source: PdfSource, nlp) -> list[Segment]:
-    doc = source if isinstance(source, fitz.Document) else fitz.open(source)
-    blocks = read_blocks(doc)
+def blocks_to_segments(blocks: list[Block], nlp) -> list[Segment]:
+    """Turn typographic blocks into `Segment`s.
+
+    Engine-agnostic: any `PdfReader` produces `Block`s and this drives the
+    same section tracking, running-furniture removal and sentence splitting.
+    """
     body_size = body_font_size(blocks)
-    furniture = running_furniture(blocks, doc.page_count)
+    pages = max((b.page for b in blocks), default=-1) + 1
+    furniture = running_furniture(blocks, pages)
 
     segments: list[Segment] = []
     sections: dict[int, str] = {}
@@ -151,3 +139,8 @@ def extract_pdf(source: PdfSource, nlp) -> list[Segment]:
         segments[-1].payload.extend(pending)
 
     return segments
+
+
+def extract_pdf(source: str | Path, nlp, reader: PdfReader) -> list[Segment]:
+    """Extract `Segment`s from a PDF using an injected reading strategy."""
+    return blocks_to_segments(reader(source), nlp)

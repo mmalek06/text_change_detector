@@ -1,6 +1,5 @@
 import zlib
 
-import fitz
 import numpy as np
 from docx import Document
 from docx.opc.packuri import PackURI
@@ -217,54 +216,6 @@ def build_distant_topics_docx(path):
             doc.add_paragraph(sentence)
 
     doc.save(str(path))
-
-    return str(path)
-
-
-PDF_PAGES = [
-    ("1. Introduction", [
-        ("The service authenticates each request using a bearer token.", "helv"),
-        ("The gateway rejects requests that present an expired token.", "helv"),
-    ]),
-    ("2. Storage", [
-        ("The database replicates writes to two standby nodes.", "helv"),
-        ("Advanced Configuration", "hebo"),
-        ("The engine compacts old segments during nightly maintenance.", "helv"),
-    ]),
-    ("3. Networking", [
-        ("The load balancer distributes traffic across three regions.", "helv"),
-        ("Each node reports its health every ten seconds.", "helv"),
-    ]),
-    ("4. Billing", [
-        ("Every invoice becomes due within fourteen days of issuance.", "helv"),
-        ("The finance team charges a surcharge for overdue balances.", "helv"),
-    ]),
-]
-PDF_RUNNING_HEADER = "Confidential Report"
-PDF_BODY_SIZE = 11.0
-
-
-def build_report_pdf(path):
-    doc = fitz.open()
-
-    for i, (heading, body) in enumerate(PDF_PAGES):
-        page = doc.new_page()
-
-        page.insert_text((72, 40), f"{PDF_RUNNING_HEADER}  Page {i + 1}", fontsize=9, fontname="helv")
-
-        y = 100
-
-        page.insert_text((72, y), heading, fontsize=16, fontname="helv")
-
-        y += 34
-
-        for text, font in body:
-            page.insert_text((72, y), text, fontsize=PDF_BODY_SIZE, fontname=font)
-
-            y += 22
-
-    doc.save(str(path))
-    doc.close()
 
     return str(path)
 

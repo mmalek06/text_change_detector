@@ -1,16 +1,11 @@
-import fitz
-import pytest
-
 from text_change_detector.tiling.extraction.pdf import (
     Block,
+    blocks_to_segments,
     body_font_size,
-    extract_pdf,
     heading_level,
     join_wrapped,
-    read_blocks,
     running_furniture,
 )
-from tests.helpers import PDF_RUNNING_HEADER
 
 
 def block(text, size=11.0, bold=False, single_line=True, page=0):
@@ -94,25 +89,44 @@ class TestHeadingLevel:
         assert heading_level(block(" ".join(["word"] * 13), size=16.0), 11.0, nlp) is None
 
 
-class TestReadBlocks:
-    def test_reads_sizes_and_bold(self, report_pdf):
-        doc = fitz.open(report_pdf)
+def report_blocks():
+    pages = [
+        ("1. Introduction", 0, [
+            "The service authenticates each request using a bearer token.",
+            "The gateway rejects requests that present an expired token.",
+        ]),
+        ("2. Storage", 1, [
+            "The database replicates writes to two standby nodes.",
+            "__Advanced Configuration__",
+            "The engine compacts old segments during nightly maintenance.",
+        ]),
+        ("3. Networking", 2, [
+            "The load balancer distributes traffic across three regions.",
+            "Each node reports its health every ten seconds.",
+        ]),
+        ("4. Billing", 3, [
+            "Every invoice becomes due within fourteen days of issuance.",
+            "The finance team charges a surcharge for overdue balances.",
+        ]),
+    ]
+    blocks = []
 
-        try:
-            blocks = read_blocks(doc)
-        finally:
-            doc.close()
+    for heading, page, body in pages:
+        blocks.append(block(f"Confidential Report Page {page + 1}", size=9.0, page=page))
+        blocks.append(block(heading, size=16.0, page=page))
 
-        by_text = {b.text: b for b in blocks}
+        for text in body:
+            if text.startswith("__"):
+                blocks.append(block(text.strip("_"), size=11.0, bold=True, page=page))
+            else:
+                blocks.append(block(text, size=11.0, page=page))
 
-        assert by_text["1. Introduction"].size == pytest.approx(16.0, abs=0.5)
-        assert by_text["Advanced Configuration"].bold is True
-        assert all(b.single_line for b in blocks)
+    return blocks
 
 
-class TestExtractPdf:
-    def test_sections_and_running_header_removed(self, report_pdf, nlp):
-        segments = extract_pdf(report_pdf, nlp)
+class TestBlocksToSegments:
+    def test_sections_and_running_header_removed(self, nlp):
+        segments = blocks_to_segments(report_blocks(), nlp)
         sections = {s.section for s in segments}
 
         assert {
@@ -122,10 +136,10 @@ class TestExtractPdf:
             "3. Networking",
             "4. Billing",
         } <= sections
-        assert all(PDF_RUNNING_HEADER not in s.text for s in segments)
+        assert all("Confidential Report" not in s.text for s in segments)
 
-    def test_body_sentences_present(self, report_pdf, nlp):
-        extracted = [s.text for s in extract_pdf(report_pdf, nlp)]
+    def test_body_sentences_present(self, nlp):
+        extracted = [s.text for s in blocks_to_segments(report_blocks(), nlp)]
 
         assert "The database replicates writes to two standby nodes." in extracted
         assert "Every invoice becomes due within fourteen days of issuance." in extracted

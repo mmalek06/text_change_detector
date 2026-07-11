@@ -126,6 +126,45 @@ uv add "pl_core_news_sm @ https://github.com/explosion/spacy-models/releases/dow
 Adding them with `uv add` (instead of `python -m spacy download`) records them in
 your lockfile, so `uv sync` will not prune them.
 
+### PDF reading
+
+The core ships no PDF engine and carries no PDF engine's licence. To tile a PDF
+you inject a reading strategy: any `PdfReader`, that is a callable turning a PDF
+path into a `list[Block]`. A ready-made one lives in a companion package:
+
+```bash
+uv add "text-change-detector-pymupdf-adapter @ git+https://github.com/mmalek06/text_change_detector_pymupdf_adapter"
+```
+
+It is backed by PyMuPDF, which is AGPL-3.0, so adding it makes the combined work
+AGPL. The core itself stays MIT; if the AGPL does not fit your project, inject a
+reader backed by a permissively licensed engine (or your own `pdf_reader=`).
+`.docx` tiling needs no reader.
+
+Pass the reader to `tile` via `pdf_reader=`:
+
+```python
+from text_change_detector import tile
+from text_change_detector_pymupdf_adapter import read_blocks
+
+tiling = tile("spec.pdf", spacy_model="en_core_web_sm", pdf_reader=read_blocks)
+```
+
+A reader is any `PdfReader`: a callable taking a PDF path and returning a
+`list[Block]`. The shared `blocks_to_segments` turns those blocks into segments
+the same way regardless of engine, so writing your own is just the read step:
+
+```python
+from text_change_detector import Block, tile
+
+def read_blocks(source) -> list[Block]:
+    # parse `source` with your PDF engine of choice and return one Block per
+    # paragraph: Block(text, size, bold, single_line, page)
+    ...
+
+tiling = tile("spec.pdf", spacy_model="en_core_web_sm", pdf_reader=read_blocks)
+```
+
 ## Usage
 
 The library works in two steps. `tile` splits a document into semantic units on a
@@ -143,10 +182,11 @@ tiling = tile("spec.docx", spacy_model="en_core_web_sm")
 print(tiling.model_dump_json(indent=2))
 ```
 
-`tile` accepts a path, an already-loaded python-docx / PyMuPDF document, or a
+`tile` accepts a path, an already-loaded python-docx document, or a
 `list[Segment]` you built yourself, and returns a `TilingResult`. `spacy_model`
 is required only when a built-in extractor runs (skip it if you pass `extractor=`
-or a `list[Segment]`). Pass `embedder=` to use your own embedding model (any
+or a `list[Segment]`); a `.pdf` path also needs `pdf_reader=` (see
+[PDF reading](#pdf-reading)). Pass `embedder=` to use your own embedding model (any
 object with `encode(list[str], normalize_embeddings=True) -> np.ndarray`);
 otherwise a default SentenceTransformer is used, configurable via `model_name`,
 `device`, `dtype`, `batch_size`.
@@ -193,8 +233,9 @@ prompts ship with the library:
 
 ```python
 from text_change_detector import tile, detect_changes, Change, POLISH_PROMPTS
+from text_change_detector_pymupdf_adapter import read_blocks
 
-tiling = tile("specyfikacja.pdf", spacy_model="pl_core_news_sm")
+tiling = tile("specyfikacja.pdf", spacy_model="pl_core_news_sm", pdf_reader=read_blocks)
 result = detect_changes(
     tiling,
     [Change(
@@ -267,13 +308,6 @@ is your responsibility.
 
 ## Taskboard
 
-- **TODO (injectable PDF extraction):** The built-in PDF extractor is built on
-  PyMuPDF (AGPL-3.0) and is currently a hard runtime dependency, imported at
-  package load. It should become an injectable, opt-in piece: PyMuPDF behind an
-  optional extra with a lazy import, so a caller who supplies a `list[Segment]`
-  or a custom `extractor=`, or who only tiles `.docx`, does not pull PyMuPDF at
-  all. This isolates the AGPL dependency to the users who actually choose the
-  built-in PDF path and keeps the core extraction-backend-agnostic.
 - **TODO (docx footnotes):** In its current form the `.docx` extractor does not
   take Word footnotes into account - footnote text lives in a separate document
   part (`word/footnotes.xml`) and is not read, so any "side notes" it carries do
