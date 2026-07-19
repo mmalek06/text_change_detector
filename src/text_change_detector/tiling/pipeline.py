@@ -1,5 +1,4 @@
 from collections import deque
-from pathlib import Path
 
 import networkx as nx
 import numpy as np
@@ -9,7 +8,13 @@ from scipy.signal import find_peaks
 from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
 from text_change_detector.shared.graph import knn_sparsify
-from text_change_detector.tiling.extraction import Extractor, PdfReader, Source, builtin_extract
+from text_change_detector.tiling.extraction import (
+    Extractor,
+    PdfReader,
+    Source,
+    builtin_extract,
+    builtin_extract_text,
+)
 
 
 def tile(
@@ -38,21 +43,28 @@ def tile(
 
     The source is resolved in this order:
         - a list[Segment] is used as-is (you parsed the document yourself);
+        - a str is raw text, split into one `Segment` per sentence (needs
+          `spacy_model`);
         - a custom `extractor` is called as `extractor(path)`;
         - otherwise a built-in extractor is picked from the source: a
-          python-docx Document or a *.docx path use the .docx extractor; a
-          *.pdf path uses the .pdf extractor, which requires `pdf_reader`.
-          Built-in extraction requires `spacy_model`.
+          python-docx Document or a *.docx `pathlib.Path` use the .docx
+          extractor; a *.pdf `pathlib.Path` uses the .pdf extractor, which
+          requires `pdf_reader`. Built-in extraction requires `spacy_model`.
+
+    Only a `pathlib.Path` is treated as a file to read; a plain str is always
+    raw text, so wrap file names in `Path(...)`.
 
     Args:
-        source: A path to a .docx/.pdf file, an already-loaded python-docx
-            Document, or a list[Segment] you produced yourself.
+        source: A raw text string, a `pathlib.Path` to a .docx/.pdf file, an
+            already-loaded python-docx Document, or a list[Segment] you produced
+            yourself.
         extractor: Custom extractor turning a path into a list of `Segment`s; any
-            `Callable[[Path], list[Segment]]`. Ignored when `source` is a
-            list[Segment].
-        spacy_model: spaCy model for the built-in extractor (e.g.
-            "en_core_web_sm"), installed with `python -m spacy download <model>`.
-            Required only when a built-in extractor runs; ignored otherwise.
+            `Callable[[Path], list[Segment]]`. Ignored when `source` is a str or
+            a list[Segment].
+        spacy_model: spaCy model for the built-in extractor and for splitting a
+            raw text string (e.g. "en_core_web_sm"), installed with
+            `python -m spacy download <model>`. Required only when a built-in
+            extractor runs or `source` is a str; ignored otherwise.
         pdf_reader: Reading strategy for PDF sources; any `PdfReader` turning a
             PDF path into a list of `Block`s. The core ships no PDF engine, so a
             reader must be injected from a companion package (the pypdfium2
@@ -105,7 +117,7 @@ def _extract(
         return source
 
     if isinstance(source, str):
-        source = Path(source)
+        return builtin_extract_text(source, spacy_model)
 
     if extractor is not None:
         return extractor(source)

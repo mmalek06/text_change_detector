@@ -54,7 +54,7 @@ def build_legal_docx(path):
     table.cell(1, 1).text = "The tenant maintains the flat in good repair."
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 def build_it_docx(path):
@@ -74,7 +74,7 @@ def build_it_docx(path):
     form.cell(1, 1).text = "The cluster streams the write-ahead log to every replica."
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 def build_toc_docx(path):
@@ -89,7 +89,7 @@ def build_toc_docx(path):
     doc.add_paragraph("The system authenticates each request using a bearer token.")
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 def build_table_docx(path):
@@ -117,7 +117,7 @@ def build_table_docx(path):
     form.cell(2, 1).text = "Finance"
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 def build_footnote_docx(path):
@@ -131,7 +131,7 @@ def build_footnote_docx(path):
     doc.add_paragraph("The parties agree to resolve disputes through arbitration.")
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 DISTANT_CHAPTERS = [
@@ -217,7 +217,7 @@ def build_distant_topics_docx(path):
 
     doc.save(str(path))
 
-    return str(path)
+    return path
 
 
 class StubEmbedder:

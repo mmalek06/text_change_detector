@@ -13,9 +13,17 @@ from text_change_detector.tiling.extraction.pdf import (
     join_wrapped,
 )
 from text_change_detector.tiling.extraction.shared import load_nlp
+from text_change_detector.tiling.extraction.text import extract_text
 
 Extractor = Callable[[Path], list[Segment]]
 Source = str | Path | DocxDocument | list[Segment]
+
+
+def builtin_extract_text(text: str, spacy_model: str | None) -> list[Segment]:
+    if spacy_model is None:
+        raise ValueError("Provide spacy_model to tile a raw text string, or pass a list[Segment].")
+
+    return extract_text(text, load_nlp(spacy_model))
 
 
 def builtin_extract(source: Source, spacy_model: str | None, pdf_reader: PdfReader | None = None) -> list[Segment]:
@@ -63,8 +71,10 @@ __all__ = [
     "PdfReader",
     "extract_docx",
     "extract_pdf",
+    "extract_text",
     "blocks_to_segments",
     "join_wrapped",
     "builtin_extract",
+    "builtin_extract_text",
     "load_nlp",
 ]

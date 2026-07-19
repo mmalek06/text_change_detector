@@ -191,14 +191,34 @@ class TestExtractDispatch:
 
             return [seg("y")]
 
-        result = _extract("file.docx", extractor, None)
+        result = _extract(Path("file.docx"), extractor, None)
 
         assert captured["path"] == Path("file.docx")
         assert [s.text for s in result] == ["y"]
 
+    def test_str_is_extracted_as_raw_text(self, monkeypatch):
+        captured = {}
+
+        def fake_extract_text(text, spacy_model):
+            captured["text"] = text
+            captured["spacy_model"] = spacy_model
+
+            return [seg("z")]
+
+        monkeypatch.setattr(pipeline, "builtin_extract_text", fake_extract_text)
+
+        result = _extract("Some raw text.", None, "en_core_web_sm")
+
+        assert captured == {"text": "Some raw text.", "spacy_model": "en_core_web_sm"}
+        assert [s.text for s in result] == ["z"]
+
+    def test_str_without_spacy_model_raises(self):
+        with pytest.raises(ValueError, match="spacy_model"):
+            _extract("Some raw text.", None, None)
+
     def test_pdf_without_reader_raises(self):
         with pytest.raises(ValueError, match="reading strategy"):
-            _extract("file.pdf", None, "en_core_web_sm")
+            _extract(Path("file.pdf"), None, "en_core_web_sm")
 
     def test_pdf_uses_injected_reader(self):
         captured = {}
@@ -208,7 +228,7 @@ class TestExtractDispatch:
 
             return []
 
-        _extract("file.pdf", None, "en_core_web_sm", reader)
+        _extract(Path("file.pdf"), None, "en_core_web_sm", reader)
 
         assert captured["source"] == Path("file.pdf")
 
@@ -282,3 +302,23 @@ class TestDistantCommunities:
 
         assert "1. Payment and Rent" not in auth_community
         assert "4. Invoicing and Billing" not in auth_community
+
+
+class TestTilePlainText:
+    TEXT = (
+        "The tenant pays the monthly rent by the fifth day of each month. "
+        "Late payments incur a penalty of five percent of the outstanding balance. "
+        "The landlord issues an invoice for every rental period. "
+        "The tenant settles each invoice through a bank transfer. "
+        "A security deposit is collected before the tenancy begins. "
+        "The deposit is refunded after the final inspection."
+    )
+
+    def test_raw_text_string_is_tiled(self, real_embedder):
+        result = tile(self.TEXT, spacy_model="en_core_web_sm", embedder=real_embedder)
+        units = [u for c in result.communities for u in c.units]
+
+        assert isinstance(result, TilingResult)
+        assert result.communities
+        assert units
+        assert all(u.section == "" for u in units)

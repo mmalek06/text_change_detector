@@ -144,10 +144,12 @@ reader backed by a permissively licensed engine (or your own `pdf_reader=`).
 Pass the reader to `tile` via `pdf_reader=`:
 
 ```python
+from pathlib import Path
+
 from text_change_detector import tile
 from text_change_detector_pymupdf_adapter import read_blocks
 
-tiling = tile("spec.pdf", spacy_model="en_core_web_sm", pdf_reader=read_blocks)
+tiling = tile(Path("spec.pdf"), spacy_model="en_core_web_sm", pdf_reader=read_blocks)
 ```
 
 A reader is any `PdfReader`: a callable taking a PDF path and returning a
@@ -155,6 +157,8 @@ A reader is any `PdfReader`: a callable taking a PDF path and returning a
 the same way regardless of engine, so writing your own is just the read step:
 
 ```python
+from pathlib import Path
+
 from text_change_detector import Block, tile
 
 def read_blocks(source) -> list[Block]:
@@ -162,7 +166,7 @@ def read_blocks(source) -> list[Block]:
     # paragraph: Block(text, size, bold, single_line, page)
     ...
 
-tiling = tile("spec.pdf", spacy_model="en_core_web_sm", pdf_reader=read_blocks)
+tiling = tile(Path("spec.pdf"), spacy_model="en_core_web_sm", pdf_reader=read_blocks)
 ```
 
 ## Usage
@@ -175,28 +179,47 @@ for the ones an LLM confirms.
 ### 1. Tiling
 
 ```python
+from pathlib import Path
+
 from text_change_detector import tile
 
-tiling = tile("spec.docx", spacy_model="en_core_web_sm")
+tiling = tile(Path("spec.docx"), spacy_model="en_core_web_sm")
 
 print(tiling.model_dump_json(indent=2))
 ```
 
-`tile` accepts a path, an already-loaded python-docx document, or a
-`list[Segment]` you built yourself, and returns a `TilingResult`. `spacy_model`
-is required only when a built-in extractor runs (skip it if you pass `extractor=`
-or a `list[Segment]`); a `.pdf` path also needs `pdf_reader=` (see
-[PDF reading](#pdf-reading)). Pass `embedder=` to use your own embedding model (any
-object with `encode(list[str], normalize_embeddings=True) -> np.ndarray`);
-otherwise a default SentenceTransformer is used, configurable via `model_name`,
-`device`, `dtype`, `batch_size`.
+`tile` accepts a raw text string, a `pathlib.Path` to a file, an already-loaded
+python-docx document, or a `list[Segment]` you built yourself, and returns a
+`TilingResult`. Only a `Path` is read from disk; a plain `str` is always treated
+as raw text and split into sentences, so wrap file names in `Path(...)`.
+`spacy_model` is required when a built-in extractor runs or when the source is a
+raw text string (skip it only if you pass `extractor=` or a `list[Segment]`); a
+`.pdf` path also needs `pdf_reader=` (see [PDF reading](#pdf-reading)). Pass
+`embedder=` to use your own embedding model (any object with
+`encode(list[str], normalize_embeddings=True) -> np.ndarray`); otherwise a default
+SentenceTransformer is used, configurable via `model_name`, `device`, `dtype`,
+`batch_size`.
+
+To tile a plain text string, pass it straight in:
+
+```python
+from text_change_detector import tile
+
+tiling = tile(
+    "The tenant pays the monthly rent by the fifth day of each month. "
+    "Late payments incur a penalty of five percent of the outstanding balance.",
+    spacy_model="en_core_web_sm",
+)
+```
 
 ### 2. Detection (tiling + detection end to end)
 
 ```python
+from pathlib import Path
+
 from text_change_detector import tile, detect_changes, Change
 
-tiling = tile("spec.docx", spacy_model="en_core_web_sm")
+tiling = tile(Path("spec.docx"), spacy_model="en_core_web_sm")
 changes = [
     Change(
         name="two-factor-at-checkout",
@@ -232,10 +255,12 @@ Keep the document, the changes and the prompt set in the same language. Polish
 prompts ship with the library:
 
 ```python
+from pathlib import Path
+
 from text_change_detector import tile, detect_changes, Change, POLISH_PROMPTS
 from text_change_detector_pymupdf_adapter import read_blocks
 
-tiling = tile("specyfikacja.pdf", spacy_model="pl_core_news_sm", pdf_reader=read_blocks)
+tiling = tile(Path("specyfikacja.pdf"), spacy_model="pl_core_news_sm", pdf_reader=read_blocks)
 result = detect_changes(
     tiling,
     [Change(

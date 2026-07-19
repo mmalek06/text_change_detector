@@ -14,7 +14,13 @@ from text_change_detector.detection import (
 from text_change_detector.shared.embedder import Embedder, SentenceTransformerEmbedder
 from text_change_detector.shared.models import Community, Segment, SemanticUnit, TilingResult
 from text_change_detector.tiling import tile
-from text_change_detector.tiling.extraction import Block, Extractor, PdfReader, blocks_to_segments
+from text_change_detector.tiling.extraction import (
+    Block,
+    Extractor,
+    PdfReader,
+    blocks_to_segments,
+    extract_text,
+)
 
 __version__ = "0.3.0"
 
@@ -33,6 +39,7 @@ __all__ = [
     "PdfReader",
     "Block",
     "blocks_to_segments",
+    "extract_text",
     "Embedder",
     "SentenceTransformerEmbedder",
     "TilingResult",
