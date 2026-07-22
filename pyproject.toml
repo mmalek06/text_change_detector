@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "text-change-detector"
-version = "0.5.0"
+version = "0.6.0"
 description = "Split text into semantic units and detect which units a proposed change impacts, using embeddings, graph clustering and an LLM."
 readme = "README.md"
 requires-python = ">=3.13"

@@ -8,7 +8,9 @@ from text_change_detector.detection.models import Merge, UnitRelation, Verdict
 from text_change_detector.detection.prompts import Prompts
 
 DEFAULT_LLM_MODEL = "gpt-oss:20b"
-PARSE_RETRY_ATTEMPTS = 3
+DEFAULT_MAX_RETRIES = 2
+RETRY_BACKOFF_BASE = 0.5
+RETRY_BACKOFF_CAP = 30.0
 
 
 class StructuredRunnable(Protocol):
@@ -43,9 +45,9 @@ class Reviewer:
     reasoning model may emit an empty final answer, for example) or make the
     provider reject the request with HTTP 400 (Groq answers a malformed tool call
     with `tool_use_failed`). Both are transient: the same prompt often succeeds on
-    a second try. When `repeat_on_parse_failure` is set, such a call is retried on
-    the same prompt up to `PARSE_RETRY_ATTEMPTS` times before the failure
-    propagates.
+    a later try. Such a call is retried on the same prompt up to `max_retries`
+    times (`0` disables retrying), with exponential backoff between attempts,
+    before the failure propagates.
 
     When `requests_per_minute` is given, every call (retries included) passes
     through a rate limiter that spaces calls to stay under that ceiling, so a free
@@ -56,11 +58,14 @@ class Reviewer:
         self,
         llm: ChatModel,
         prompts: Prompts,
-        repeat_on_parse_failure: bool = True,
+        max_retries: int = DEFAULT_MAX_RETRIES,
         requests_per_minute: int | None = None,
     ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
+
         self._prompts = prompts
-        self._repeat_on_parse_failure = repeat_on_parse_failure
+        self._max_retries = max_retries
         self._limiter = _RateLimiter(requests_per_minute) if requests_per_minute is not None else None
         self._relation_llm = llm.with_structured_output(UnitRelation)
         self._verify_llm = llm.with_structured_output(Verdict)
@@ -79,10 +84,9 @@ class Reviewer:
         return self._invoke(self._merge_llm, self._prompts.merge.format(change=change, unit=unit))
 
     def _invoke(self, runnable: StructuredRunnable, prompt: str) -> object:
-        attempts = PARSE_RETRY_ATTEMPTS if self._repeat_on_parse_failure else 1
         last_error: Exception | None = None
 
-        for _ in range(attempts):
+        for attempt in range(self._max_retries + 1):
             if self._limiter is not None:
                 self._limiter.acquire()
 
@@ -90,20 +94,19 @@ class Reviewer:
                 result = runnable.invoke(prompt)
             except OutputParserException as exc:
                 last_error = exc
-
-                continue
             except Exception as exc:
                 if not _is_bad_request(exc):
                     raise
 
                 last_error = exc
+            else:
+                if result is not None:
+                    return result
 
-                continue
+                last_error = OutputParserException("structured output was empty")
 
-            if result is not None:
-                return result
-
-            last_error = OutputParserException("structured output was empty")
+            if attempt < self._max_retries:
+                time.sleep(_backoff_delay(attempt))
 
         raise last_error
 
@@ -121,6 +124,11 @@ def _is_bad_request(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
 
     return getattr(response, "status_code", None) == 400
+
+
+def _backoff_delay(attempt: int) -> float:
+    """Exponential backoff, in seconds, for a zero-based failed-attempt index."""
+    return min(RETRY_BACKOFF_CAP, RETRY_BACKOFF_BASE * (2**attempt))
 
 
 class _RateLimiter:

@@ -262,7 +262,7 @@ class TestDetectChangesEndToEnd:
 
         assert seen["model"] == "my-model:latest"
 
-    def test_requests_per_minute_is_forwarded_to_the_reviewer(self, monkeypatch):
+    def test_retry_and_rpm_settings_are_forwarded_to_the_reviewer(self, monkeypatch):
         captured = {}
 
         class Stop(Exception):
@@ -283,9 +283,11 @@ class TestDetectChangesEndToEnd:
                 llm=StructuredLLMStub(_handlers()),
                 knn_k=1,
                 primary_k=1,
+                max_retries=10,
                 requests_per_minute=30,
             )
 
+        assert captured["max_retries"] == 10
         assert captured["requests_per_minute"] == 30
 
     def test_change_objects_and_dicts_are_both_accepted(self):

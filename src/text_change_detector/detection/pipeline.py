@@ -5,7 +5,13 @@ import networkx as nx
 import numpy as np
 import torch
 
-from text_change_detector.detection.llm import ChatModel, DEFAULT_LLM_MODEL, Reviewer, default_llm
+from text_change_detector.detection.llm import (
+    ChatModel,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_MAX_RETRIES,
+    Reviewer,
+    default_llm,
+)
 from text_change_detector.detection.models import (
     Change,
     ChangeImpact,
@@ -31,7 +37,7 @@ def detect_changes(
     llm: ChatModel | None = None,
     llm_model: str = DEFAULT_LLM_MODEL,
     prompts: Prompts = ENGLISH_PROMPTS,
-    repeat_on_parse_failure: bool = True,
+    max_retries: int = DEFAULT_MAX_RETRIES,
     requests_per_minute: int | None = None,
     knn_k: int = 5,
     primary_k: int = 5,
@@ -65,12 +71,12 @@ def detect_changes(
         llm_model: Ollama model id for the default LLM, ignored when `llm` is given.
         prompts: The prompt set. `ENGLISH_PROMPTS` (default) or `POLISH_PROMPTS`,
             or your own `Prompts`. Match it to the document's language.
-        repeat_on_parse_failure: When True (default), an LLM call whose output the
+        max_retries: How many times to retry an LLM call whose output the
             structured parser cannot read, or which the provider rejects with an
-            HTTP 400 for a malformed tool call (e.g. Groq `tool_use_failed`), is
-            retried on the same prompt up to three times before failing. Guards
-            against a model that occasionally returns an empty or malformed
-            structured answer (some reasoning models do).
+            HTTP 400 for a malformed tool call (e.g. Groq `tool_use_failed`). The
+            same prompt is re-sent with exponential backoff between attempts; `0`
+            disables retrying. Guards against a model that occasionally returns an
+            empty or malformed structured answer (some reasoning models do).
         requests_per_minute: When set, the LLM calls (retries included) are spaced
             60 / requests_per_minute seconds apart to stay under a provider's RPM
             limit (e.g. a free tier's 30 RPM). None (default) sends them as fast as
@@ -121,7 +127,7 @@ def detect_changes(
     reviewer = Reviewer(
         llm or default_llm(llm_model),
         prompts,
-        repeat_on_parse_failure=repeat_on_parse_failure,
+        max_retries=max_retries,
         requests_per_minute=requests_per_minute,
     )
     impacts = [_review(change, analysis, reviewer) for change, analysis in zip(changes, analyses)]
