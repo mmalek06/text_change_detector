@@ -262,6 +262,32 @@ class TestDetectChangesEndToEnd:
 
         assert seen["model"] == "my-model:latest"
 
+    def test_requests_per_minute_is_forwarded_to_the_reviewer(self, monkeypatch):
+        captured = {}
+
+        class Stop(Exception):
+            pass
+
+        def spy(llm, prompts, **kwargs):
+            captured.update(kwargs)
+
+            raise Stop
+
+        monkeypatch.setattr(pipeline, "Reviewer", spy)
+
+        with pytest.raises(Stop):
+            detect_changes(
+                self._tiling(),
+                [{"name": "c", "text": "login precondition"}],
+                embedder=self._embedder(),
+                llm=StructuredLLMStub(_handlers()),
+                knn_k=1,
+                primary_k=1,
+                requests_per_minute=30,
+            )
+
+        assert captured["requests_per_minute"] == 30
+
     def test_change_objects_and_dicts_are_both_accepted(self):
         result = detect_changes(
             self._tiling(),
