@@ -1,8 +1,11 @@
+import threading
+
 import networkx as nx
 import numpy as np
 import pytest
 
 from text_change_detector.detection import detect_changes
+from text_change_detector.detection import llm as llm_module
 from text_change_detector.detection.models import (
     Change,
     DetectionResult,
@@ -13,7 +16,7 @@ from text_change_detector.detection.models import (
 from text_change_detector.detection import pipeline
 from text_change_detector.detection.pipeline import _analyze, _flatten_units, _review, _Analysis, _Unit
 from text_change_detector.shared.models import Community, SemanticUnit, TilingResult
-from tests.helpers import StructuredLLMStub, StubEmbedder
+from tests.helpers import BarrierLLMStub, StructuredLLMStub, StubEmbedder
 
 
 def unit(id, section="", sentences=None, payload=None):
@@ -301,3 +304,169 @@ class TestDetectChangesEndToEnd:
         )
 
         assert result.changes[0].name == "c"
+
+
+class TestDetectChangesConcurrent:
+    def _tiling(self):
+        return tiling_of(
+            unit(0, "Login", ["login flow"]),
+            unit(1, "Labels", ["label printing"]),
+            unit(2, "Rent", ["unrelated rent"]),
+        )
+
+    def _embedder(self):
+        table = {
+            "login flow": [1, 0, 0],
+            "label printing": [0, 1, 0],
+            "unrelated rent": [0, 0, 1],
+            "login precondition": [1, 0, 0],
+            "label reprint": [0, 1, 0],
+        }
+
+        return StubEmbedder(table=table, dim=3)
+
+    def _changes(self):
+        return [
+            {"name": "one", "text": "login precondition"},
+            {"name": "two", "text": "label reprint"},
+        ]
+
+    def _mixed_handlers(self):
+        return {
+            UnitRelation: lambda p: UnitRelation(
+                unit_topic="t",
+                relation="strong" if "login flow" in p else "medium",
+                justification="j",
+            ),
+            Verdict: lambda p: Verdict(objection="o", reason="r", agrees=True),
+            Merge: lambda p: Merge(added="A", merged_text="M"),
+        }
+
+    def test_result_matches_the_sequential_path(self):
+        sequential = detect_changes(
+            self._tiling(),
+            self._changes(),
+            embedder=self._embedder(),
+            llm=StructuredLLMStub(self._mixed_handlers()),
+            knn_k=1,
+            primary_k=2,
+            similarity_floor=0.0,
+        )
+        concurrent = detect_changes(
+            self._tiling(),
+            self._changes(),
+            embedder=self._embedder(),
+            llm=StructuredLLMStub(self._mixed_handlers()),
+            knn_k=1,
+            primary_k=2,
+            similarity_floor=0.0,
+            max_concurrency=4,
+        )
+
+        assert concurrent.model_dump() == sequential.model_dump()
+
+    def test_calls_overlap_under_concurrency(self):
+        tiling = tiling_of(
+            unit(0, "A", ["alpha"]),
+            unit(1, "B", ["bravo"]),
+            unit(2, "C", ["charlie"]),
+            unit(3, "D", ["delta"]),
+        )
+        llm = BarrierLLMStub(_handlers(), parties=4)
+        result = detect_changes(
+            tiling,
+            [{"name": "c", "text": "quebec"}],
+            embedder=StubEmbedder(dim=4),
+            llm=llm,
+            knn_k=1,
+            primary_k=4,
+            similarity_floor=0.0,
+            max_concurrency=4,
+        )
+
+        assert len(result.changes[0].relations) == 4
+        assert len(llm.calls) == 12
+
+    def test_error_in_one_chain_propagates(self):
+        def classify(prompt):
+            if "label printing" in prompt:
+                raise RuntimeError("chain failed")
+
+            return UnitRelation(unit_topic="t", relation="none", justification="j")
+
+        handlers = {
+            UnitRelation: classify,
+            Verdict: lambda p: Verdict(objection="o", reason="r", agrees=True),
+            Merge: lambda p: Merge(added="A", merged_text="M"),
+        }
+
+        with pytest.raises(RuntimeError, match="chain failed"):
+            detect_changes(
+                self._tiling(),
+                self._changes(),
+                embedder=self._embedder(),
+                llm=StructuredLLMStub(handlers),
+                knn_k=1,
+                primary_k=2,
+                similarity_floor=0.0,
+                max_concurrency=2,
+            )
+
+    def test_non_positive_max_concurrency_is_rejected(self):
+        with pytest.raises(ValueError, match="max_concurrency"):
+            detect_changes(self._tiling(), self._changes(), max_concurrency=0)
+
+    def test_rate_limiter_sees_every_call(self, monkeypatch):
+        created = []
+
+        class CountingLimiter:
+            def __init__(self, requests_per_minute):
+                self.acquires = 0
+                self.lock = threading.Lock()
+
+                created.append(self)
+
+            def acquire(self):
+                with self.lock:
+                    self.acquires += 1
+
+        monkeypatch.setattr(llm_module, "_RateLimiter", CountingLimiter)
+
+        llm = StructuredLLMStub(self._mixed_handlers())
+
+        detect_changes(
+            self._tiling(),
+            self._changes(),
+            embedder=self._embedder(),
+            llm=llm,
+            knn_k=1,
+            primary_k=2,
+            similarity_floor=0.0,
+            requests_per_minute=600,
+            max_concurrency=4,
+        )
+
+        assert len(llm.calls) > 0
+        assert created[0].acquires == len(llm.calls)
+
+    def test_pool_size_matches_max_concurrency(self, monkeypatch):
+        captured = {}
+        real_executor = pipeline.ThreadPoolExecutor
+
+        def spy(max_workers):
+            captured["max_workers"] = max_workers
+
+            return real_executor(max_workers=max_workers)
+
+        monkeypatch.setattr(pipeline, "ThreadPoolExecutor", spy)
+        detect_changes(
+            self._tiling(),
+            self._changes(),
+            embedder=self._embedder(),
+            llm=StructuredLLMStub(self._mixed_handlers()),
+            knn_k=1,
+            primary_k=2,
+            max_concurrency=3,
+        )
+
+        assert captured["max_workers"] == 3

@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import networkx as nx
@@ -39,6 +40,7 @@ def detect_changes(
     prompts: Prompts = ENGLISH_PROMPTS,
     max_retries: int = DEFAULT_MAX_RETRIES,
     requests_per_minute: int | None = None,
+    max_concurrency: int = 1,
     knn_k: int = 5,
     primary_k: int = 5,
     similarity_floor: float = 0.5,
@@ -81,6 +83,15 @@ def detect_changes(
             60 / requests_per_minute seconds apart to stay under a provider's RPM
             limit (e.g. a free tier's 30 RPM). None (default) sends them as fast as
             they arise. Does not throttle the embedder, which runs locally.
+        max_concurrency: How many candidate review chains may run at once. The
+            default 1 reviews candidates sequentially. Raise it when the endpoint
+            handles concurrent requests well (a vLLM/TGI deployment batching
+            continuously, most paid APIs): each candidate's classify/verify/merge
+            chain then runs on a thread pool this size, and the result is
+            identical to a sequential run. Requires an `llm` whose bound
+            runnables tolerate concurrent `invoke` calls (LangChain chat models
+            do). Composes with `requests_per_minute`, which still caps the total
+            rate across all threads.
         knn_k: Neighbours kept per unit when rebuilding the graph. Must match the
             `knn_k` the graph was tiled with.
         primary_k: How many top-similarity units count as direct hits per change.
@@ -95,6 +106,9 @@ def detect_changes(
         With the default embedder the library owns it and frees its GPU memory
         before the LLM pass. With a custom `embedder`, its lifecycle is yours.
     """
+    if max_concurrency < 1:
+        raise ValueError("max_concurrency must be positive")
+
     changes = [Change.model_validate(c) for c in changes]
 
     if not changes:
@@ -130,7 +144,11 @@ def detect_changes(
         max_retries=max_retries,
         requests_per_minute=requests_per_minute,
     )
-    impacts = [_review(change, analysis, reviewer) for change, analysis in zip(changes, analyses)]
+
+    if max_concurrency == 1:
+        impacts = [_review(change, analysis, reviewer) for change, analysis in zip(changes, analyses)]
+    else:
+        impacts = _review_concurrent(changes, analyses, reviewer, max_concurrency)
 
     return DetectionResult(changes=impacts)
 
@@ -188,53 +206,101 @@ def _analyze(
 
 
 def _review(change: Change, analysis: _Analysis, reviewer: Reviewer) -> ChangeImpact:
-    relations: list[Relation] = []
-    suggestions: list[Suggestion] = []
+    results = [_review_candidate(change, unit, reviewer) for unit in analysis.candidates]
 
-    for unit in analysis.candidates:
-        rel = reviewer.classify(change.text, unit.text)
-        verified: bool | None = None
-        verify_reason = ""
+    return _assemble_impact(change, analysis, results)
 
-        if rel.relation == "strong":
-            verdict = reviewer.verify(change.text, unit.text, rel.justification)
-            verified = verdict.agrees
-            verify_reason = f"[objection] {verdict.objection} [decision] {verdict.reason}"
 
-            if verdict.agrees:
-                merged = reviewer.merge(change.text, unit.text)
+def _review_concurrent(
+    changes: list[Change],
+    analyses: list[_Analysis],
+    reviewer: Reviewer,
+    max_concurrency: int,
+) -> list[ChangeImpact]:
+    """Runs every (change, candidate) review chain on a shared thread pool.
 
-                suggestions.append(
-                    Suggestion(
-                        requirement=change.name,
-                        unit_id=unit.id,
-                        section=unit.section,
-                        justification=rel.justification,
-                        verify_reason=verdict.reason,
-                        current_text=unit.text,
-                        added=merged.added,
-                        merged_text=merged.merged_text,
-                    )
-                )
+    Each chain is independent, so chains fan out across changes and within one
+    change alike. Results are reassembled in the original candidate order, so
+    the output matches the sequential path exactly. On the first failed chain
+    no further chains start, in-flight ones finish, and the error propagates.
+    """
+    results: dict[tuple[int, int], tuple[Relation, Suggestion | None]] = {}
 
-        relations.append(
-            Relation(
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        futures = {
+            executor.submit(_review_candidate, change, unit, reviewer): (change_index, candidate_index)
+            for change_index, (change, analysis) in enumerate(zip(changes, analyses))
+            for candidate_index, unit in enumerate(analysis.candidates)
+        }
+
+        try:
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        except BaseException:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+            raise
+
+    return [
+        _assemble_impact(
+            change,
+            analysis,
+            [results[(change_index, candidate_index)] for candidate_index in range(len(analysis.candidates))],
+        )
+        for change_index, (change, analysis) in enumerate(zip(changes, analyses))
+    ]
+
+
+def _review_candidate(
+    change: Change, unit: _Unit, reviewer: Reviewer
+) -> tuple[Relation, Suggestion | None]:
+    rel = reviewer.classify(change.text, unit.text)
+    verified: bool | None = None
+    verify_reason = ""
+    suggestion: Suggestion | None = None
+
+    if rel.relation == "strong":
+        verdict = reviewer.verify(change.text, unit.text, rel.justification)
+        verified = verdict.agrees
+        verify_reason = f"[objection] {verdict.objection} [decision] {verdict.reason}"
+
+        if verdict.agrees:
+            merged = reviewer.merge(change.text, unit.text)
+            suggestion = Suggestion(
                 requirement=change.name,
                 unit_id=unit.id,
                 section=unit.section,
-                relation=rel.relation,
-                unit_topic=rel.unit_topic,
                 justification=rel.justification,
-                verified=verified,
-                verify_reason=verify_reason,
+                verify_reason=verdict.reason,
+                current_text=unit.text,
+                added=merged.added,
+                merged_text=merged.merged_text,
             )
-        )
 
+    relation = Relation(
+        requirement=change.name,
+        unit_id=unit.id,
+        section=unit.section,
+        relation=rel.relation,
+        unit_topic=rel.unit_topic,
+        justification=rel.justification,
+        verified=verified,
+        verify_reason=verify_reason,
+    )
+
+    return relation, suggestion
+
+
+def _assemble_impact(
+    change: Change,
+    analysis: _Analysis,
+    results: list[tuple[Relation, Suggestion | None]],
+) -> ChangeImpact:
     return ChangeImpact(
         name=change.name,
         text=change.text,
         primary=analysis.primary,
         ripple=analysis.ripple,
-        relations=relations,
-        suggestions=suggestions,
+        relations=[relation for relation, _ in results],
+        suggestions=[suggestion for _, suggestion in results if suggestion is not None],
     )

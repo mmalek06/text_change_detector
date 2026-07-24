@@ -24,6 +24,10 @@ class ChatModel(Protocol):
     Any object with `with_structured_output(schema)` returning a runnable whose
     `invoke(prompt: str)` yields an instance of `schema` works — e.g. a
     `langchain_ollama.ChatOllama`, or any other LangChain chat model.
+
+    When `detect_changes` runs with `max_concurrency > 1`, the returned runnable
+    is invoked from several threads at once, so it must tolerate concurrent
+    `invoke` calls. LangChain chat models do.
     """
 
     def with_structured_output(self, schema: type, **kwargs: object) -> StructuredRunnable: ...
@@ -52,6 +56,10 @@ class Reviewer:
     When `requests_per_minute` is given, every call (retries included) passes
     through a rate limiter that spaces calls to stay under that ceiling, so a free
     tier's RPM limit is not tripped. `None` sends calls as fast as they arise.
+
+    One reviewer can be shared across threads: retry state is local to each
+    call and the rate limiter reserves slots under a lock, so the RPM ceiling
+    holds across all threads combined.
     """
 
     def __init__(

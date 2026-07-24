@@ -1,3 +1,4 @@
+import threading
 import zlib
 
 import numpy as np
@@ -278,3 +279,37 @@ class StructuredLLMStub:
 
     def with_structured_output(self, schema, **kwargs):
         return _BoundStub(self, schema)
+
+
+class _BarrierBoundStub:
+    def __init__(self, parent, schema):
+        self.parent = parent
+        self.schema = schema
+
+    def invoke(self, prompt):
+        self.parent.barrier.wait(timeout=self.parent.timeout)
+
+        with self.parent.lock:
+            self.parent.calls.append((self.schema, prompt))
+
+        return self.parent.handlers[self.schema](prompt)
+
+
+class BarrierLLMStub:
+    """A structured-output stub whose every call waits at a shared barrier.
+
+    With `parties` set to the expected concurrency, a call returns only once
+    that many calls are in flight at the same moment, which proves genuine
+    overlap. A caller that cannot overlap trips the barrier timeout instead,
+    failing the test fast rather than hanging the suite.
+    """
+
+    def __init__(self, handlers, parties, timeout=2.0):
+        self.handlers = dict(handlers)
+        self.barrier = threading.Barrier(parties)
+        self.timeout = timeout
+        self.lock = threading.Lock()
+        self.calls = []
+
+    def with_structured_output(self, schema, **kwargs):
+        return _BarrierBoundStub(self, schema)

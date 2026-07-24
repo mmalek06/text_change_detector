@@ -306,6 +306,42 @@ article as context rather than as the unit a change belongs in. Because
 `prompts=` is just a `Prompts` of `str.format` templates, this is a copy-and-edit
 away, with no change to the library.
 
+### Concurrent reviews against a batching endpoint
+
+By default the review chains (classify, then verify and merge for strong hits)
+run one candidate at a time. That is the right pace for a local single-stream
+model or a free tier with a strict requests-per-minute cap, but it wastes an
+endpoint that batches concurrent requests server-side, such as a vLLM or TGI
+deployment or most paid APIs. Against those, raise `max_concurrency` to keep
+that many chains in flight at once; the result is identical to a sequential
+run, only faster:
+
+```python
+from langchain_openai import ChatOpenAI
+
+from text_change_detector import detect_changes
+
+
+class JsonSchemaLLM:
+    """Binds every response schema through the endpoint's json_schema mode,
+    which vLLM enforces with guided decoding for any model it serves."""
+
+    def __init__(self, llm):
+        self._llm = llm
+
+    def with_structured_output(self, schema, **kwargs):
+        return self._llm.with_structured_output(schema, method="json_schema", **kwargs)
+
+
+llm = JsonSchemaLLM(ChatOpenAI(model="my-model", base_url="https://my-endpoint/v1", api_key="..."))
+result = detect_changes(tiling, changes, llm=llm, max_concurrency=8)
+```
+
+The `llm` you pass must tolerate concurrent `invoke` calls (LangChain chat
+models do). `requests_per_minute` still applies globally when set: it caps the
+total rate across all threads, while `max_concurrency` caps how many requests
+are in flight.
+
 ### Reading the result
 
 `detect_changes` returns a `DetectionResult`: one `ChangeImpact` per change, plus
